@@ -605,6 +605,29 @@ void WallApp::NotePointer(UINT kind, POINT pt, WPARAM extra) {
     Log(std::string(buf) + ClassNameOf(hit));
 }
 
+// 应用图标(托盘/窗口): 资源序号1 -> 资源名 IDI_APPICON -> exe 首图标 -> 系统默认
+// (wallpaper.rc 里图标以组名 IDI_APPICON 定义, 序号 1 取不到, 故需回退链)
+static HICON AppIcon(const char** source) {
+    HICON ic = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
+    if (ic) { if (source) *source = "res-id-1"; return ic; }
+    ic = LoadIconW(GetModuleHandleW(nullptr), L"IDI_APPICON");
+    if (ic) { if (source) *source = "res-name"; return ic; }
+    wchar_t path[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, path, MAX_PATH);
+    // 注意: 变量不能叫 small —— rpcndr.h 里 #define small char 会展开炸掉
+    HICON big = nullptr, smallIc = nullptr;
+    if (ExtractIconExW(path, 0, &big, &smallIc, 1) > 0) {
+        HICON pick = big ? big : smallIc;
+        if (big && smallIc && smallIc != big) DestroyIcon(smallIc);
+        if (pick) { if (source) *source = "exe-first"; return pick; }
+    } else {
+        if (big) DestroyIcon(big);
+        if (smallIc) DestroyIcon(smallIc);
+    }
+    if (source) *source = "default";
+    return LoadIconW(nullptr, IDI_APPLICATION);
+}
+
 // ---- 托盘 ----
 void WallApp::SetupTray() {
     NOTIFYICONDATAW nid{};
@@ -613,7 +636,9 @@ void WallApp::SetupTray() {
     nid.uID = kTrayUid;
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = kMsgTray;
-    nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    const char* iconSrc = nullptr;
+    nid.hIcon = AppIcon(&iconSrc);
+    Log(std::string("tray icon source=") + (iconSrc ? iconSrc : "?"));
     wcscpy_s(nid.szTip, L"Agent-Heart 动效壁纸");
     if (Shell_NotifyIconW(NIM_ADD, &nid)) {
         trayAdded_ = true;
@@ -1324,6 +1349,7 @@ bool WallApp::Initialize(HINSTANCE inst) {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = inst;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hIcon = AppIcon(nullptr);   // 窗口/任务栏图标
     wc.hbrBackground = nullptr;
     wc.lpszClassName = kClassName;
     if (!RegisterClassW(&wc)) return false;
