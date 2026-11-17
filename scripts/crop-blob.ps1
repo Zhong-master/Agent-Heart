@@ -1,0 +1,12 @@
+Add-Type -AssemblyName System.Drawing
+$src = [System.Drawing.Bitmap]::FromFile('D:\Projects\NativeWallpaper\out\shot-tasks.png')
+Write-Output ("dims=" + $src.Width + "x" + $src.Height)
+$r1 = New-Object System.Drawing.Rectangle(0, 0, 1600, 420)
+$c1 = $src.Clone($r1, $src.PixelFormat)
+$c1.Save('D:\Projects\NativeWallpaper\out\crop-top.png')
+$c1.Dispose()
+$r2 = New-Object System.Drawing.Rectangle(1400, 850, 1100, 1000)
+$c2 = $src.Clone($r2, $src.PixelFormat)
+$c2.Save('D:\Projects\NativeWallpaper\out\crop-blob.png')
+$c2.Dispose()
+$src.Dispose()

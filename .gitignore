@@ -1,0 +1,18 @@
+# build artifacts
+out/
+outcheck_*/
+dist/
+installer/payload/
+*.obj
+*.res
+*.exe
+*.log
+
+# runtime state
+native-wallpaper-state.json
+launch.lnk
+
+# ide
+.vs/
+.vscode/
+*.user
