@@ -3,6 +3,9 @@ out/
 outcheck_*/
 dist/
 installer/payload/
+installer/out/
+installer/Setup.exe.manifest
+*.bmp
 *.obj
 *.res
 *.exe

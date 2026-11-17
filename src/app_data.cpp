@@ -13,10 +13,12 @@
 //   QueryStats     = /sysinfo (PDH CPU/GPU 差分 + 内存 + 网卡字节差分 + 磁盘)
 //   FocusTask      = /focus  (AttachThreadInput + ShowWindow + SetForegroundWindow)
 //   CloseTask      = /close  (WM_CLOSE -> 500ms 未销毁 TerminateProcess 兜底)
-// 持久化: exe 同目录 native-wallpaper-state.json (自实现极简 JSON, 无第三方库)。
+// 持久化: %LOCALAPPDATA%\Agent-Heart\state.json (目录自动创建, 装到 Program Files
+// 后仍可写; 自实现极简 JSON, 无第三方库)。
 // 所有失败/异常静默返回安全值; 中文一律宽字符, 落盘读取 UTF-8。
 // ============================================================
 #include "app_data.h"
+#include "config.h"        // AgentHeartStatePath(): %LOCALAPPDATA%\Agent-Heart\state.json
 
 #include <objbase.h>
 #include <objidl.h>
@@ -750,13 +752,17 @@ HWND ResolveHwnd(const std::wstring& id, const std::vector<AppItem>& apps,
 // ============================================================
 
 std::wstring AppData::StatePath() const {
+    // %LOCALAPPDATA%\Agent-Heart\state.json (config.h inline: 目录不存在则创建)
+    const std::wstring p = AgentHeartStatePath();
+    if (!p.empty()) return p;
+    // 兜底: LOCALAPPDATA 取不到时退回 exe 同目录 (保持旧行为, 写失败静默)
     wchar_t buf[MAX_PATH] = L"";
     const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
     std::wstring dir;
     if (n > 0 && n < MAX_PATH) {
         dir.assign(buf, n);
-        const size_t p = dir.find_last_of(L"\\/");
-        if (p != std::wstring::npos) dir.resize(p + 1);
+        const size_t s = dir.find_last_of(L"\\/");
+        if (s != std::wstring::npos) dir.resize(s + 1);
         else dir.clear();
     }
     return dir + L"native-wallpaper-state.json";

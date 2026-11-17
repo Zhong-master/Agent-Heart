@@ -432,8 +432,10 @@ void SphereScene::Draw() {
     // §1.2 投影 + 点大小 (照抄 three.js, 不含 tan(fov/2)):
     //   pointSizePx = size * (heightDevicePx * 0.5) / (-p_v.z)
     float halfH = static_cast<float>(pxH_) * 0.5f;
+    const float scale = sphereScale_;            // 设置: 球形大小 (世界坐标统一缩放)
     for (int i = 0; i < kParticles; ++i) {
-        V3 rel = disp_[i] - camPos;              // N2: 显示坐标 (与连线一致, §3.7)
+        V3 rel = disp_[i] * scale - camPos;      // N2: 显示坐标×缩放 (连线端点读 sx_/sy_,
+                                                  //     走同一投影路径自动一致, §3.7)
         float depth = Dot(rel, fwd);            // clip.w = -p_v.z = 视深
         depth_[i] = depth;
         if (depth <= kNear) {
@@ -517,6 +519,9 @@ void SphereScene::Draw() {
         }
     }
 
+    // 设置: 鼠标拖尾 (加色混合渐隐, 画在 overlayDraw_ 之前)
+    DrawTrail(dc.get());
+
     // Stage3 覆盖层: 场景之后绘制; 混合切回 SOURCE_OVER (场景用 ADD)
     if (overlayDraw_) {
         ID2D1Bitmap1* snap = nullptr;
@@ -548,8 +553,10 @@ void SphereScene::Draw() {
 void SphereScene::Tick(double dt) {
     if (!initialized_) return;
     ++ticks_;
-    UpdateCamera(dt);                            // §5.2 B15~B18 (dt 已由 main 钳到 ≤0.1)
-    ParticleUpdate(dt);                          // §5.4 (含 Simulate; dt<=0 内部直接返回)
+    if (animationsEnabled_) {                    // 设置: 动效总开关关 -> 时钟冻结
+        UpdateCamera(dt);                        // §5.2 B15~B18 (dt 已由 main 钳到 ≤0.1)
+        ParticleUpdate(dt);                      // §5.4 (含 Simulate; dt<=0 内部直接返回)
+    }
     if (pxW_ <= 0 || pxH_ <= 0 || !surface_) return;   // 最小化: 模拟继续, 跳过绘制
     UpdateLinks();
     Draw();
@@ -777,10 +784,12 @@ bool SphereScene::HitsBall(float x, float y) const {   // §8.2 悬停与点击�
     float tanHalf = 1.0f / f_;                // tan(fov/2) = tan25° (f = 1/tan25°)
     V3 dir = Normalize(right * (ndcX * tanHalf * aspect_) +
                        up * (ndcY * tanHalf) + fwd);
-    // 解析射线 vs 半径 r=2 球壳: |camPos + t·dir|² = r² → t² + 2b·t + c = 0
+    // 解析射线 vs 半径 r=2·sphereScale 球壳 (设置: 拾取半径随球形大小同步,
+    // 与投影阶段世界坐标×scale 等价): |camPos + t·dir|² = r² → t² + 2b·t + c = 0
     // pickMesh 为 DoubleSide → 任一 t ≥ 0 的交点即命中 (源码三角化差异 ≤0.0024mm 不可见)
+    const float rPick = kRadius * sphereScale_;
     float b = Dot(camPos_, dir);
-    float c = Dot(camPos_, camPos_) - kRadius * kRadius;
+    float c = Dot(camPos_, camPos_) - rPick * rPick;
     float disc = b * b - c;
     if (disc < 0.0f) return false;
     return -b + std::sqrt(disc) >= 0.0f;
@@ -833,6 +842,7 @@ void SphereScene::PointerUp(float x, float y) {        // click 判定 (Viewport
     lastX_ = x;
     lastY_ = y;
     if (down && std::sqrt(dx * dx + dy * dy) > kClickSlop) return;   // B5 拖拽不算点击 (严格 >5px)
+    if (!clickEffectEnabled_) return;                  // 设置: 点击效果关 → 不切换点击态
     if (clickActive_) { ReverseClick(); return; }      // B6 已在点击态 → 倒放
     if (!HitsBall(x, y)) return;                      // B7 未命中球壳 → 忽略
     EnterClick();                                      // §1.3 进入点击态
@@ -841,12 +851,92 @@ void SphereScene::PointerUp(float x, float y) {        // click 判定 (Viewport
 void SphereScene::Wheel(int deltaY) {
     if (!initialized_) return;
     if (deltaY < 0) return;                           // B8 上滑开抽屉由 main 负责 (§8.5)
+    if (!clickEffectEnabled_) return;                  // 设置: 点击效果关 → 无点击态可倒放
     if (deltaY <= 0 || !clickActive_) return;          // B9 非点击态下滑无动作 (缩放恒关)
     ReverseClick();                                    // §8.4 下滑 → 点击态倒放
 }
 
 bool SphereScene::ClickActive() const { return clickActive_; }
 bool SphereScene::HoverActive() const { return hover_; }
+
+// ================= 设置集成 (Agent-Heart 设置窗口) =================
+
+void SphereScene::SetAnimationsEnabled(bool on) {
+    animationsEnabled_ = on;                       // false: Tick 冻结时钟但仍绘制
+}
+
+void SphereScene::SetSphereScale(float s) {
+    if (!(s > 0.0f)) s = 1.0f;                     // NaN / 非法值 -> 默认
+    if (s < 0.5f) s = 0.5f;                        // 范围 0.5 ~ 1.5
+    if (s > 1.5f) s = 1.5f;
+    sphereScale_ = s;
+}
+
+void SphereScene::SetClickEffectEnabled(bool on) {
+    if (clickEffectEnabled_ == on) return;
+    clickEffectEnabled_ = on;
+    if (!on && clickActive_) ReverseClick();        // 关闭即退出四环互换态 (不卡态)
+}
+
+void SphereScene::SetTrailEnabled(bool on) {
+    if (trailEnabled_ == on) return;
+    trailEnabled_ = on;
+    if (!on) trailPts_.clear();                    // 关闭即清空拖尾
+}
+
+void SphereScene::SetTrailPoint(float x, float y) {
+    if (!trailEnabled_ || !animationsEnabled_) return;   // 关闭 / 动效冻结: 不新增点
+    if (!std::isfinite(x) || !std::isfinite(y)) return;
+    const unsigned long long now = GetTickCount64();
+    if (!trailPts_.empty()) {                      // 光标静止 (位移 ≤1.5px) 不新增点
+        const float dx = x - trailPts_.back().x;
+        const float dy = y - trailPts_.back().y;
+        if (dx * dx + dy * dy < 2.25f) return;
+    }
+    trailPts_.push_back(TrailPt{ x, y, now });
+    while (trailPts_.size() > 40)                  // 上限约 40 点
+        trailPts_.erase(trailPts_.begin());
+}
+
+void SphereScene::DrawTrail(ID2D1DeviceContext* dc) {
+    if (!dc || !trailEnabled_ || !animationsEnabled_ || trailPts_.empty()) return;
+    constexpr unsigned long long kLifeMs = 600;         // 寿命约 0.6 秒
+    const unsigned long long now = GetTickCount64();
+
+    size_t keep = 0;                                     // 剔除过期点 (保持时序)
+    for (size_t i = 0; i < trailPts_.size(); ++i)
+        if (now - trailPts_[i].tMs <= kLifeMs) trailPts_[keep++] = trailPts_[i];
+    trailPts_.resize(keep);
+    if (trailPts_.empty()) return;
+
+    // 白偏淡蓝; Draw 顶部已设 D2D1_PRIMITIVE_BLEND_ADD -> 黑底发光叠加
+    const D2D1_COLOR_F base{ 0.78f, 0.88f, 1.0f, 1.0f };
+    winrt::com_ptr<ID2D1SolidColorBrush> br;
+    dc->CreateSolidColorBrush(&base, nullptr, br.put());
+    if (!br) return;
+
+    for (size_t i = 1; i < trailPts_.size(); ++i) {      // 渐隐折线
+        const float life = 1.0f - static_cast<float>(now - trailPts_[i].tMs) /
+                                  static_cast<float>(kLifeMs);
+        if (life <= 0.0f) continue;
+        const D2D1_COLOR_F c{ base.r, base.g, base.b, life * life };   // alpha 随寿命衰减
+        br->SetColor(&c);
+        const float width = 1.5f + 1.0f * life;          // 粗细 1.5 ~ 2.5px
+        const D2D1_POINT_2F p0{ trailPts_[i - 1].x, trailPts_[i - 1].y };
+        const D2D1_POINT_2F p1{ trailPts_[i].x, trailPts_[i].y };
+        dc->DrawLine(p0, p1, br.get(), width);
+    }
+    for (size_t i = 0; i < trailPts_.size(); ++i) {      // 端点圆点 (新点更亮更大)
+        const float life = 1.0f - static_cast<float>(now - trailPts_[i].tMs) /
+                                  static_cast<float>(kLifeMs);
+        if (life <= 0.0f) continue;
+        const D2D1_COLOR_F c{ base.r, base.g, base.b, life * 0.8f };
+        br->SetColor(&c);
+        const float r = 1.0f + 1.2f * life;
+        const D2D1_ELLIPSE el{ D2D1_POINT_2F{ trailPts_[i].x, trailPts_[i].y }, r, r };
+        dc->FillEllipse(&el, br.get());
+    }
+}
 
 // ---------------- 相机飞行 (§1.3 / §2) ----------------
 

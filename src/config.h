@@ -48,8 +48,6 @@ inline std::wstring AgentHeartDataDir() {
     }
     if (dir.empty()) return std::wstring();
     dir += L"\\Agent-Heart";
-    for (size_t i = dir.find_first_of(L"\\/"); i != std::wstring::npos; )
-        i = dir.find_first_of(L"\\/", i + 1);
     // 逐级建目录 (从最短前缀到完整路径)
     for (size_t i = dir.find_first_of(L"\\/"); i != std::wstring::npos; ) {
         if (i > 2) CreateDirectoryW(dir.substr(0, i).c_str(), nullptr);   // 跳过 "C:" 盘符

@@ -1,0 +1,9 @@
+// installer/payload.rc —— 单文件分发:把 payload 内嵌为 RCDATA 资源(id 固定 101~104)
+// 资源路径以 installer\ 为基准(build-installer.bat 先把四个文件暂存到 payload\)。
+#include <windows.h>
+#pragma code_page(65001)
+
+101 RCDATA "payload\\Agent-Heart.exe"
+102 RCDATA "payload\\LICENSE"
+103 RCDATA "payload\\README.md"
+104 RCDATA "payload\\CHANGELOG.md"

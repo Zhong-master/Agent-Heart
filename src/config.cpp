@@ -8,13 +8,13 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
 namespace {
 
 AppConfig g_cfg;              // 全局当前配置 (默认值即 AppConfig 成员初值)
-bool g_loaded = false;        // Load 只执行一次语义 (重复调用允许, 幂等)
 
 // ---------------- 极简 JSON 扫描 ----------------
 // 跳过空白
@@ -105,10 +105,7 @@ const AppConfig& ConfigGet() { return g_cfg; }
 void ConfigLoad() {
     try {
         const std::string text = ReadAll(AgentHeartConfigPath());
-        if (text.empty()) {                     // 缺失/读失败 -> 默认值
-            g_loaded = true;
-            return;
-        }
+        if (text.empty()) return;               // 缺失/读失败 -> 保持默认值
         std::string v;
         if (FindScalar(text, "animationsEnabled", v))
             g_cfg.animationsEnabled = ParseBool(v, g_cfg.animationsEnabled);
@@ -118,7 +115,6 @@ void ConfigLoad() {
             g_cfg.clickEffectEnabled = ParseBool(v, g_cfg.clickEffectEnabled);
         if (FindScalar(text, "mouseTrailEnabled", v))
             g_cfg.mouseTrailEnabled = ParseBool(v, g_cfg.mouseTrailEnabled);
-        g_loaded = true;
     } catch (...) {
         // 静默: 保持默认值
     }
@@ -156,6 +152,3 @@ void ConfigResetDefaults() {
     ConfigSet(d);
 }
 
-void ConfigTouch() {                            // (保留: 让 g_loaded 被引用, 避免未用告警)
-    (void)g_loaded;
-}

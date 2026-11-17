@@ -49,6 +49,8 @@
 #include "sphere_scene.h"
 #include "app_data.h"
 #include "ui_overlay.h"
+#include "config.h"
+#include "settings.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "windowsapp.lib")
@@ -83,6 +85,7 @@ constexpr UINT kMsgTray = WM_APP + 1;
 constexpr UINT kTrayUid = 1;
 constexpr UINT kIdExit = 2001;
 constexpr UINT kIdReload = 2002;
+constexpr UINT kIdSettings = 2003;   // 托盘 设置(S)
 
 std::wstring g_logPath;
 bool g_probe = false;
@@ -632,6 +635,8 @@ void WallApp::RemoveTray() {
 
 void WallApp::ShowTrayMenu(POINT pt) {
     HMENU m = CreatePopupMenu();
+    AppendMenuW(m, MF_STRING, kIdSettings, L"设置(&S)");
+    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(m, MF_STRING, kIdExit, L"退出壁纸");
     SetForegroundWindow(hwnd_);
     TrackPopupMenu(m, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd_, nullptr);
@@ -905,6 +910,15 @@ void WallApp::OnFrameTick() {
     PollTaskData(dt);                              // 任务面板打开期间 2s 轮询
     sphere_.SetSnapshotEnabled(ui_.AnyVisible() ||
         (!g_shotPath.empty() && !g_shotDone));      // 毛玻璃快照按需开启
+
+    // 设置 -> 场景 (每帧同步: 设置窗口改动下一帧即生效; 未变化时各 Set 内部早退)
+    {
+        const AppConfig& cfg = ConfigGet();
+        sphere_.SetAnimationsEnabled(cfg.animationsEnabled);
+        sphere_.SetSphereScale(cfg.sphereScale);
+        sphere_.SetClickEffectEnabled(cfg.clickEffectEnabled);
+        sphere_.SetTrailEnabled(cfg.mouseTrailEnabled);
+    }
 
     // 自证截图 (--selfshot): 进程内 PrintWindow 抓自身窗口 (PW_RENDERFULLCONTENT)
     if (!g_selfShotPath.empty() && !g_selfShotDone && sphere_.TickCount() >= 60) {
@@ -1531,6 +1545,9 @@ LRESULT WallApp::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
         if (LOWORD(wp) == kIdExit) {
             Log("exit requested via tray");
             DestroyWindow(hwnd_);
+        } else if (LOWORD(wp) == kIdSettings) {
+            Log("settings requested via tray");
+            ShowSettingsWindow();        // 单实例: 已开则 SetForegroundWindow 置前
         }
         return 0;
     case WM_KEYDOWN:
@@ -1671,6 +1688,7 @@ void WallApp::RouteMove(float x, float y, bool down) {
         if (ui_.HitInteractive(x, y)) SetCursor(LoadCursorW(nullptr, IDC_HAND));
     } else {
         sphere_.PointerMove(x, y, down);
+        sphere_.SetTrailPoint(x, y);   // 桌面区域路由: 鼠标拖尾 (光标静止时内部不新增)
     }
 }
 
@@ -1955,6 +1973,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     Log("timeBeginPeriod(1) rr=" + std::to_string(g_tbpRr) + " (0=ok)");
     Log(std::string("mode: ") + (g_fullscreen ? "wallpaper (WorkerW)" : "windowed") +
         (g_probe ? " [probe]" : ""));
+
+    ConfigLoad();   // 启动加载用户配置 (%LOCALAPPDATA%\Agent-Heart\config.json)
+    {
+        const AppConfig& cfg = ConfigGet();
+        char cb[160];
+        sprintf_s(cb, "config: animations=%d scale=%.2f clickEffect=%d trail=%d",
+                  cfg.animationsEnabled ? 1 : 0, static_cast<double>(cfg.sphereScale),
+                  cfg.clickEffectEnabled ? 1 : 0, cfg.mouseTrailEnabled ? 1 : 0);
+        Log(cb);
+    }
 
     WallApp app;
     if (!app.Initialize(inst)) {

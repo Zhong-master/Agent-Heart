@@ -76,6 +76,20 @@ public:
         x = camPos_.x; y = camPos_.y; z = camPos_.z;
     }
 
+    // ================= 设置集成 (Agent-Heart 设置窗口, 只增不改) =================
+    // 动效总开关: false 时 Tick 不推进 漂移/形变/相机 时钟, 但仍绘制 (画面静止)。
+    void SetAnimationsEnabled(bool on);
+    // 球形大小 (0.5~1.5): Draw 投影阶段把粒子世界坐标乘以该缩放, 连线端点走同一
+    // 投影路径自动一致; N2 形变/点击目标 (disp_) 同路径, 拾取半径同步缩放。
+    void SetSphereScale(float s);
+    // 点击效果: false 时 PointerUp 不切换 clickActive (悬停形变不受影响);
+    // 关闭瞬间若已在点击态则自动倒放退出, 避免卡在四环互换态。
+    void SetClickEffectEnabled(bool on);
+    // 鼠标拖尾: 开关 + 记录客户区 DIP 点 (main 的 RouteMove 桌面区域路由时调用);
+    // 光标静止 (位移 ≤1.5px) 不新增点; 最多 40 点, 每帧衰减, 寿命约 0.6s。
+    void SetTrailEnabled(bool on);
+    void SetTrailPoint(float x, float y);
+
     // Stage3 覆盖层钩子: 场景画完之后、EndDraw 之前调用; dc 已带 DPI 变换 (单位 DIP),
     // 混合模式已切到 SOURCE_OVER; sceneSnapshot 为场景快照位图 (毛玻璃源), 仅快照开启时非空。
     using OverlayDrawFn = std::function<void(ID2D1DeviceContext*, ID2D1Bitmap*, float dipW, float dipH)>;
@@ -172,6 +186,18 @@ private:
 
     // ---- 随机数发生器 (固定种子, 便于复现) ----
     std::mt19937 rng_{ 0x5EEDu };
+
+    // ---- 设置状态 (main 每帧 OnFrameTick 同步, 设置窗口改动即生效) ----
+    bool animationsEnabled_ = true;          // 动效总开关 (false: 时钟冻结但仍绘制)
+    float sphereScale_ = 1.0f;               // 球形缩放 0.5~1.5 (投影阶段生效)
+    bool clickEffectEnabled_ = true;         // 点击效果 (false: PointerUp 不切点击态)
+    bool trailEnabled_ = true;               // 鼠标拖尾开关
+    struct TrailPt {
+        float x, y;                          // 客户区 DIP
+        unsigned long long tMs;              // 加入时刻 (GetTickCount64)
+    };
+    std::vector<TrailPt> trailPts_;          // 最近 ≤40 点, 按寿命衰减
+    void DrawTrail(ID2D1DeviceContext* dc);  // overlayDraw_ 之前, 加色混合渐隐折线
 
     // ---- Stage3 覆盖层钩子 / 场景快照 ----
     OverlayDrawFn overlayDraw_;
